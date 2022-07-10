@@ -1,7 +1,14 @@
-fun main(args: Array<String>) {
-    println("Hello World!")
+import bencode.Bencoder
+import bencode.MetainfoExtractor
+import java.nio.file.Path
 
-    // Try adding program arguments via Run/Debug configuration.
-    // Learn more about running applications: https://www.jetbrains.com/help/idea/running-applications.html.
-    println("Program arguments: ${args.joinToString()}")
+fun main(args: Array<String>) {
+
+    val path = Path.of(args.first())
+
+    val bencoder = Bencoder(path)
+    val parsedData = bencoder.parse()
+    val extractor = MetainfoExtractor(parsedData.first())
+    val metainfo = extractor.extractMetainfo()
+    println("Parsed '${metainfo.torrentInfo.name}'")
 }
