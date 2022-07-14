@@ -3,21 +3,22 @@ package bencode
 import java.nio.file.Files
 import java.nio.file.Path
 
-class Bencoder(path: Path) {
+class Bencoder {
 
-    private val bytes: ByteArray
-    private val text: String
+    private lateinit var bytes: ByteArray
+    private lateinit var text: String
     private var parseIndex = 0
-
-    init {
-        bytes = Files.readAllBytes(path)
-        text = bytes.map { it.toInt().toChar() }.joinToString(separator = "")
-    }
 
     private val parsedElements = mutableListOf<ParsedData>()
 
-    fun parse(): List<ParsedData> {
+    fun parse(path: Path): List<ParsedData> {
+        return parse(Files.readAllBytes(path))
+    }
+
+    fun parse(bytes: ByteArray): List<ParsedData> {
         parseIndex = 0
+        this.bytes = bytes
+        text = bytes.map { it.toInt().toChar() }.joinToString(separator = "")
         while (parseIndex != text.length) {
             parseElement()?.let { parsedElements += it }
         }
@@ -50,6 +51,7 @@ class Bencoder(path: Path) {
     }
 
     private fun parseDictionary(): DictionaryParsedData {
+        val startIndex = parseIndex
         parseIndex++
         val dict = mutableMapOf<StringParsedData, ParsedData>()
         while (getCurr() != 'e') {
@@ -58,8 +60,10 @@ class Bencoder(path: Path) {
             require(value != null)
             dict[key] = value
         }
+
+        val endIndex = parseIndex
         parseIndex++
-        return DictionaryParsedData(dict)
+        return DictionaryParsedData(dict, bytes.sliceArray(startIndex..endIndex))
     }
 
     private fun parseList(): ListParsedData {

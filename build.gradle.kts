@@ -13,6 +13,8 @@ repositories {
 }
 
 dependencies {
+    implementation("io.github.openfeign:feign-core:11.8")
+    implementation("io.github.openfeign:feign-okhttp:11.8")
     testImplementation(kotlin("test"))
 }
 
