@@ -8,10 +8,10 @@ data class TrackerResponse(
     val trackerId: String?,
     val complete: Long,
     val incomplete: Long,
-    val peers: List<Peer>
+    val peers: List<PeerInfo>
 )
 
-data class Peer(
+data class PeerInfo(
     val peerId: String,
     val ip: String,
     val port: Int

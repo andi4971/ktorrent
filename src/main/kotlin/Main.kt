@@ -16,5 +16,5 @@ fun main(args: Array<String>) {
     println("Parsed '${metainfo.torrentInfo.name}' with piece length '${pieceLength}', size: '$filesize', hash: '${metainfo.infoHashForText}'")
 
     val loader = TorrentLoader(metainfo)
-    loader.getInfoFromTracker()
+    loader.start()
 }

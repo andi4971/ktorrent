@@ -9,6 +9,7 @@ class Metainfo(
     val createdBy: String?,
     val encoding: String?,
     val torrentInfo: TorrentInfo,
+    val infoHash: ByteArray,
     val infoHashForUrl: String,
     val infoHashForText: String
 ) {

@@ -2,10 +2,8 @@ package bencode
 
 import bencode.entity.*
 import toInt
-import java.nio.ByteBuffer
 import java.security.MessageDigest
 import java.util.HexFormat
-import javax.sound.midi.Track
 import kotlin.io.path.Path
 
 class ParsedDataExtractor {
@@ -46,19 +44,20 @@ class ParsedDataExtractor {
             createdBy?.text,
             encoding?.text,
             torrentInfo,
+            sha1,
             getSHA1ForUrl(sha1),
             getSHA1ForText(sha1)
         )
     }
 
-    private fun parsePeers(value: ListParsedData): List<Peer> {
+    private fun parsePeers(value: ListParsedData): List<PeerInfo> {
         return value.value
             .map { it as DictionaryParsedData }
             .map {
                 val peerId = it.getValueOrNull<StringParsedData>("peer id")?.text
                 val ip = it.getValue<StringParsedData>("ip").text
                 val port = it.getValue<LongParsedData>("port").value.toInt()
-                Peer(
+                PeerInfo(
                     peerId ?: (ip + port.toString()),
                     ip,
                     port
@@ -93,7 +92,7 @@ class ParsedDataExtractor {
         )
     }
 
-    private fun parsePeers(value: StringParsedData): List<Peer> {
+    private fun parsePeers(value: StringParsedData): List<PeerInfo> {
 
         return value.value
             .toList()
@@ -105,7 +104,7 @@ class ParsedDataExtractor {
                 val port = bytes
                 .takeLast(2)
                 .toByteArray().toInt()
-                Peer(ip,ip,port)
+                PeerInfo(ip,ip,port)
             }
     }
 

@@ -15,6 +15,9 @@ repositories {
 dependencies {
     implementation("io.github.openfeign:feign-core:11.8")
     implementation("io.github.openfeign:feign-okhttp:11.8")
+    val ktor_version = "2.0.3"
+    implementation("io.ktor:ktor-network:$ktor_version")
+    implementation("io.ktor:ktor-network-tls:$ktor_version")
     testImplementation(kotlin("test"))
 }
 
