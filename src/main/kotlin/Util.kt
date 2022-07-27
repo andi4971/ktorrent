@@ -1,5 +1,7 @@
-import torrent.TorrentLoader
+import io.ktor.utils.io.*
 import java.nio.ByteBuffer
+import java.util.HexFormat
+
 const val bittorrentProtocol =  "BitTorrent protocol"
 fun bytesToHumanReadableSize(bytes: Double) = when {
     bytes >= 1 shl 30 -> "%.1f GB".format(bytes / (1 shl 30))
@@ -24,8 +26,13 @@ fun ByteArray.toInt(): Int {
    return (high.toInt() shl 8) or low.toInt()
 }
 
-fun intToBytes(i: Int): ByteArray =
-    ByteBuffer.allocate(Int.SIZE_BYTES).putInt(i).array()
+fun ByteArray.toIntFour(): Int{
+    check(this.size == 4)
+    return ByteBuffer.wrap(this).int
+}
+
+fun Int.toByteArray(): ByteArray =
+    ByteBuffer.allocate(Int.SIZE_BYTES).putInt(this).array()
 
 fun ByteBuffer.getNBytes(bytes: Int): ByteArray {
     val result = ByteArray(bytes)
@@ -36,4 +43,43 @@ fun ByteBuffer.getNBytes(bytes: Int): ByteArray {
 
 fun Byte.toBitString(): String {
     return this.toString(2).padStart(8, '0')
+}
+fun UByte.toBitString(): String {
+    return this.toString(2).padStart(8, '0')
+}
+
+@OptIn(ExperimentalUnsignedTypes::class)
+fun UByteArray.asBitList(): List<Boolean> {
+   return this.joinToString(separator = "") { it.toBitString() }.map { it == '1' }
+}
+
+suspend inline fun ByteReadChannel.readNBytes(bytes: Int): ByteArray {
+    val result = ByteArray(bytes)
+    this.readAvailable(result, 0, bytes)
+    return result
+}
+
+fun getSHA1ForUrl(sha1: ByteArray): String {
+    return String(sha1, Charsets.ISO_8859_1)
+}
+private val hexFormat = HexFormat.of()
+
+fun getSHA1ForText(sha1: ByteArray): String {
+    return hexFormat.formatHex(sha1)
+}
+
+suspend inline fun ByteWriteChannel.writeAvailable(bytes: ByteArray){
+    this.writeAvailable(ByteBuffer.wrap(bytes))
+}
+
+fun Array<Boolean>.getNeededIndices(): List<Int>{
+    return this.mapIndexedNotNull {index, b ->  if(!b) index else null }
+}
+
+fun Array<Boolean>.getHavingIndices(): List<Int>{
+    return this.mapIndexedNotNull {index, b ->  if(b) index else null }
+}
+
+fun ByteArray.copyInto(other: ByteArray, destPos: Int) {
+    System.arraycopy(other, 0, this, destPos, other.size)
 }

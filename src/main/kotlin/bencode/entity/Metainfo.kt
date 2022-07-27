@@ -15,13 +15,18 @@ class Metainfo(
 ) {
 }
 
-data class TorrentInfo(
+class TorrentInfo(
     val name: String,
     val pieceLength: Long,
     val pieces: List<String>,
     val length: Long?,
     val files: List<TorrentFile>?
-)
+) {
+    private val actualLength = length ?: files!!.sumOf { it.length }
+    fun getLength(): Long {
+        return actualLength
+    }
+}
 
 data class TorrentFile(
     val path: Path,

@@ -3,7 +3,8 @@ package torrent
 import bencode.entity.Metainfo
 import bencode.entity.PeerInfo
 import bencode.entity.TrackerResponse
-import getNBytes
+import file.FileHandler
+import getHavingIndices
 import getRandomPeerId
 import io.ktor.network.selector.*
 import io.ktor.network.sockets.*
@@ -11,11 +12,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import tracker.TrackerRequestData
 import tracker.TrackerService
-import java.nio.ByteBuffer
+import java.nio.file.Path
 import kotlin.properties.Delegates
 import kotlin.system.exitProcess
 
-class TorrentLoader(private val metainfo: Metainfo) {
+class TorrentLoader(val metainfo: Metainfo, val alreadyDownloaded: Array<Boolean>, val folderPath: Path) {
 
     companion object {
         val peerId = getRandomPeerId()
@@ -28,10 +29,17 @@ class TorrentLoader(private val metainfo: Metainfo) {
     private var downloaded = 0L
     private var uploaded = 0L
     private val selectorManager = SelectorManager(Dispatchers.IO)
-    private val messageCreator = MessageCreator(metainfo)
+    private val fileHandler: FileHandler
+    private val remainingPieces: MutableList<Int>
+    val messageCreator = MessageCreator(metainfo)
 
     init {
-        remainingBytes = metainfo.torrentInfo.length ?: metainfo.torrentInfo.files!!.sumOf { it.length }
+        remainingBytes = metainfo.torrentInfo.getLength()
+        val path = folderPath.resolve(metainfo.torrentInfo.name)
+        fileHandler = FileHandler(path, metainfo)
+        remainingPieces = alreadyDownloaded.mapIndexedNotNull { index, b -> if(!b)
+         index else null
+        } .toMutableList()
     }
 
     private fun getInfoFromTracker() {
@@ -45,61 +53,45 @@ class TorrentLoader(private val metainfo: Metainfo) {
 
     fun start() {
         getInfoFromTracker()
-        val handshakeMessage = messageCreator.getHandshakeMessage()
-        startConnection(handshakeMessage)
+        startConnection()
     }
 
-    fun startConnection(handshake: ByteArray) {
+    private fun startConnection() {
         val peers = lastResponse.peers.toMutableList()
 
+        val peerHandlers = mutableListOf<PeerHandler>()
 
         runBlocking {
             while (true) {
                 var socket: Socket? = null
+                var peer: PeerInfo? = null
                 while (socket == null) {
-                    socket = connectToPeer(peers.removeFirst())
+                    peer = peers.removeFirst()
+                    socket = connectToPeer(peer)
                 }
-
-                val receiveChannel = socket.openReadChannel()
-                val sendChannel = socket.openWriteChannel(autoFlush = true)
-
-                sendChannel.writeAvailable(ByteBuffer.wrap(handshake))
-                receiveChannel.awaitContent()
-
-                val readBuffer = ByteBuffer.allocate(10000)
-                while (readBuffer.position() < HANDSHAKE_SIZE){
-                    receiveChannel.readAvailable(readBuffer)
+                if(peer == null){
+                    error("no peers left :(")
                 }
-                readBuffer.flip()
-                var result = readBuffer.getNBytes(HANDSHAKE_SIZE)
-                if(!parseHandshake(result)) continue
-
-                result = readBuffer.getNBytes(readBuffer.slice().remaining())
+                val handler = PeerHandler(this@TorrentLoader, peer,this.coroutineContext,socket)
+                peerHandlers.add(handler)
+                handler.start()
                 exitProcess(0)
             }
         }
-
     }
 
-    private fun parseHandshake(result: ByteArray): Boolean {
-        return try {
-            val handshakeResponse =
-                ByteParser.parseHandshake(result.sliceArray(0 until HANDSHAKE_SIZE), metainfo.infoHashForText)
-            println("Successful handshake with peerid: ${handshakeResponse.peerId}  reserved bits: ${handshakeResponse.reservedBits}")
-            true
-        } catch (e: java.lang.IllegalStateException) {
-            println("failure while validating handshake: ${e.message}")
-            false
-        }
+    fun getBitfieldMessage(): ByteArray {
+        return messageCreator.getBitfieldMessage(alreadyDownloaded)
     }
 
+    fun somethingDownloaded(): Boolean {
+        return alreadyDownloaded.any{it}
+    }
 
     private suspend fun connectToPeer(peer: PeerInfo): Socket? {
         return try {
             aSocket(selectorManager).tcp().connect(peer.ip, peer.port) {
                 socketTimeout = 2000
-                this
-
             }
         } catch (e: java.lang.Exception) {
             println("Could not connect to peer ${peer.ip}:${peer.port} because: ${e.message}")
@@ -107,15 +99,26 @@ class TorrentLoader(private val metainfo: Metainfo) {
         }
     }
 
-    private fun ByteBuffer.readAvailable(): ByteArray {
-        val bytes = ByteArray(this.remaining())
-        this.get(bytes)
-        return bytes
+    fun getNewPiece(peer: PeerConnection): Int? {
+        val peerHavingIndices =  peer.availablePieces.getHavingIndices().toSet()
+        val intersection = remainingPieces intersect peerHavingIndices
+        if(intersection.isEmpty()) return null
+        val chosenIndex = intersection.random()
+        remainingPieces.remove(chosenIndex)
+        return chosenIndex
     }
 
-    private fun ByteBuffer.readBytes(): ByteArray {
-        val bytes = ByteArray(this.remaining())
-        this.get(bytes)
-        return bytes
+    fun writePieceToFile(pieceIndex: Int, bytes: ByteArray){
+        fileHandler.writeBytes(pieceIndex, bytes)
+        alreadyDownloaded[pieceIndex] = true
     }
+
+    fun putPieceBack(idx: Int) {
+        remainingPieces.add(idx)
+    }
+
+    fun readBytes(pieceIndex: Int, blockBegin: Int, blockLength: Int): ByteArray {
+        return fileHandler.readBytes(pieceIndex, blockBegin, blockLength)
+    }
+
 }

@@ -1,5 +1,6 @@
 package torrent
 
+import bencode.entity.Metainfo
 import bittorrentProtocol
 import toBitString
 import torrent.TorrentLoader.Companion.HANDSHAKE_SIZE
@@ -20,8 +21,21 @@ class ByteParser {
             check(handshakeInfoHash == infoHash) {"different info hash: expected $infoHash got $handshakeInfoHash"}
             check(pstrLen== 19) {"prstlen not 19 byte was: $pstrLen"}
             check(pstr  == bittorrentProtocol) {"protocol different was $pstr"}
+            check(peerId.length == 20) {"peer id was not 20 bytes long: ${peerId.length}"}
             val reservedBits = reservedBytes.joinToString("|"){it.toBitString()}
             return Handshake(pstr, infoHash,reservedBits, peerId)
+        }
+
+        fun parseHandshake(result: ByteArray, metainfo: Metainfo): Boolean {
+            return try {
+                val handshakeResponse =
+                    ByteParser.parseHandshake(result.sliceArray(0 until HANDSHAKE_SIZE), metainfo.infoHashForText)
+                println("Successful handshake with peerid: ${handshakeResponse.peerId}  reserved bits: ${handshakeResponse.reservedBits}")
+                true
+            } catch (e: java.lang.IllegalStateException) {
+                println("failure while validating handshake: ${e.message}")
+                false
+            }
         }
     }
 

@@ -1,6 +1,9 @@
 package bencode
 
 import bencode.entity.*
+import getSHA1ForText
+import getSHA1ForUrl
+import io.ktor.util.*
 import toInt
 import java.security.MessageDigest
 import java.util.HexFormat
@@ -36,7 +39,7 @@ class ParsedDataExtractor {
             files = files
         )
 
-        val sha1 = getSHA1(info.rawData)
+        val sha1 = sha1(info.rawData)
         return Metainfo(
             announceUrl.text,
             announceList,
@@ -133,19 +136,6 @@ class ParsedDataExtractor {
             .toList()
             .chunked(20)
             .map { hexFormat.formatHex(it.toByteArray()) }
-    }
-
-    private fun getSHA1(data: ByteArray): ByteArray {
-        val md = MessageDigest.getInstance("SHA-1")
-        return md.digest(data)
-    }
-
-    private fun getSHA1ForUrl(sha1: ByteArray): String {
-        return String(sha1, Charsets.ISO_8859_1)
-    }
-
-    private fun getSHA1ForText(sha1: ByteArray): String {
-        return hexFormat.formatHex(sha1)
     }
 
 
