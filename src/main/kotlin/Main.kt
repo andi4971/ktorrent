@@ -30,7 +30,6 @@ fun main(args: Array<String>) {
     if(metainfo.torrentInfo.files == null) {
         val filePath = folderPath.resolve(metainfo.torrentInfo.name)
         if(!filePath.exists()){
-            val view = Files.getFileAttributeView(filePath, BasicFileAttributeView::class.java)
             val file = filePath.createFile().toFile()
             RandomAccessFile(file, "rw").setLength(metainfo.torrentInfo.length!!)
         }

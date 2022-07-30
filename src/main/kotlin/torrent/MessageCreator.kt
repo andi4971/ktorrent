@@ -2,18 +2,34 @@ package torrent
 
 import bencode.entity.Metainfo
 import bittorrentProtocol
-import copyInto
+import copyIntoSelf
 import toByteArray
+import java.lang.Math.pow
 import kotlin.math.ceil
+import kotlin.math.pow
+
+typealias Block = Pair<Int, ByteArray>
 
 class MessageCreator(private val metainfo: Metainfo) {
 
     companion object{
-        const val BLOCK_SIZE = 2048
+        val BLOCK_SIZE = 2.0.pow(14.0).toInt()
+        val ONE_BYTES = (1).toByteArray()
+        val BLOCK_SIZE_BYTES = BLOCK_SIZE.toByteArray()
         const val ID_5 = (5).toByte()
         const val ID_6 = (6).toByte()
+        val ID_6_LENGTH_BYTES = (13).toByteArray()
         val ID_6_ARR = ByteArray(1){6}
+        val ID_7_ARR = ByteArray(1){7}
+        const val ID_6_MESSAGE_LENGTH = 17
+        val CHOKE_MESSAGE = byteArrayOf(0,0,0,0,0)
+        val UNCHOKE_MESSAGE = byteArrayOf(0,0,0,0,1)
+        val INTERESTED_MESSAGE = byteArrayOf(0,0,0,0,2)
+        val UNINTERESTED_MESSAGE = byteArrayOf(0,0,0,0,3)
+
+
     }
+
 
     fun getHandshakeMessage(): ByteArray {
         val bytes = mutableListOf<Byte>()
@@ -36,8 +52,21 @@ class MessageCreator(private val metainfo: Metainfo) {
         return (bitfieldLength.toList() + listOf(ID_5) +bitfieldBytes).toByteArray()
     }
 
-    fun getBlockRequestsForPiece(pieceIndex: Long): MutableList<ByteArray> {
+    fun getBlockRequestsForPiece(pieceIndex: Int): MutableList<Pair<Int, ByteArray>> {
+        val pieceLength = metainfo.torrentInfo.pieceLength.toInt()
+        val messages = mutableListOf<Pair<Int, ByteArray>>()
+        val pieceIndexBytes = pieceIndex.toByteArray()
+        for(start in 0 until pieceLength- BLOCK_SIZE step BLOCK_SIZE) {
+            val message = ByteArray(ID_6_MESSAGE_LENGTH)
+            message.copyIntoSelf(ID_6_LENGTH_BYTES,0)
+            message.copyIntoSelf(ID_6_ARR,4)
+            message.copyIntoSelf(pieceIndexBytes, 5)
+            message.copyIntoSelf(start.toByteArray(), 9)
+            message.copyIntoSelf(BLOCK_SIZE_BYTES, 13)
 
+            messages+=Pair(start, message)
+        }
+        return messages
     }
 
     fun getPieceMessage(pieceIndex: Int, blockOffset: Int, block: ByteArray): ByteArray {
@@ -46,11 +75,12 @@ class MessageCreator(private val metainfo: Metainfo) {
         val lengthBytes = length.toByteArray()
         val indexBytes = pieceIndex.toByteArray()
         val offsetBytes = blockOffset.toByteArray()
-        pieceMessage.copyInto(lengthBytes, 0)
-        pieceMessage.copyInto(ID_6_ARR, 4)
-        pieceMessage.copyInto(indexBytes, 5)
-        pieceMessage.copyInto(offsetBytes, 9)
-        pieceMessage.copyInto(block, 13)
+        pieceMessage.copyIntoSelf(lengthBytes, 0)
+        pieceMessage.copyIntoSelf(ID_7_ARR, 4)
+        pieceMessage.copyIntoSelf(indexBytes, 5)
+        pieceMessage.copyIntoSelf(offsetBytes, 9)
+        pieceMessage.copyIntoSelf(block, 13)
         return pieceMessage
     }
+
 }

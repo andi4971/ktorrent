@@ -29,7 +29,7 @@ class ByteParser {
         fun parseHandshake(result: ByteArray, metainfo: Metainfo): Boolean {
             return try {
                 val handshakeResponse =
-                    ByteParser.parseHandshake(result.sliceArray(0 until HANDSHAKE_SIZE), metainfo.infoHashForText)
+                    parseHandshake(result.sliceArray(0 until HANDSHAKE_SIZE), metainfo.infoHashForText)
                 println("Successful handshake with peerid: ${handshakeResponse.peerId}  reserved bits: ${handshakeResponse.reservedBits}")
                 true
             } catch (e: java.lang.IllegalStateException) {

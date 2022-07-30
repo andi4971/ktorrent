@@ -1,4 +1,12 @@
+import bencode.entity.PeerInfo
+import io.ktor.network.selector.*
+import io.ktor.network.sockets.*
 import io.ktor.utils.io.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.channels.ClosedReceiveChannelException
+import kotlinx.coroutines.launch
 import java.nio.ByteBuffer
 import java.util.HexFormat
 
@@ -55,7 +63,10 @@ fun UByteArray.asBitList(): List<Boolean> {
 
 suspend inline fun ByteReadChannel.readNBytes(bytes: Int): ByteArray {
     val result = ByteArray(bytes)
-    this.readAvailable(result, 0, bytes)
+    val closed = this.readAvailable(result, 0, bytes)
+    if(closed== -1){
+        throw ClosedReceiveChannelException("read channel closed")
+    }
     return result
 }
 
@@ -80,6 +91,23 @@ fun Array<Boolean>.getHavingIndices(): List<Int>{
     return this.mapIndexedNotNull {index, b ->  if(b) index else null }
 }
 
-fun ByteArray.copyInto(other: ByteArray, destPos: Int) {
+fun ByteArray.copyIntoSelf(other: ByteArray, destPos: Int) {
     System.arraycopy(other, 0, this, destPos, other.size)
+}
+
+private val selectorManager = SelectorManager(Dispatchers.IO)
+
+suspend fun connectToPeer(peer: PeerInfo): Socket? {
+    return try {
+        aSocket(selectorManager).tcp().connect(peer.ip, peer.port)
+    } catch (e: java.lang.Exception) {
+        println("Could not connect to peer ${peer.ip}:${peer.port} because: ${e.message}")
+        null
+    }
+}
+
+fun ByteWriteChannel.launchWriteAvailable(scope: CoroutineScope, bytes: ByteArray) {
+    scope.launch(Dispatchers.IO) {
+        this@launchWriteAvailable.writeAvailable(bytes)
+    }
 }

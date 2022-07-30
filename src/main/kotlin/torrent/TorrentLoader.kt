@@ -12,6 +12,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import tracker.TrackerRequestData
 import tracker.TrackerService
+import java.net.SocketException
 import java.nio.file.Path
 import kotlin.properties.Delegates
 import kotlin.system.exitProcess
@@ -25,10 +26,10 @@ class TorrentLoader(val metainfo: Metainfo, val alreadyDownloaded: Array<Boolean
 
     private val trackerService = TrackerService(metainfo)
     private lateinit var lastResponse: TrackerResponse
+    private val peers = mutableListOf<PeerInfo>()
     private var remainingBytes by Delegates.notNull<Long>()
     private var downloaded = 0L
     private var uploaded = 0L
-    private val selectorManager = SelectorManager(Dispatchers.IO)
     private val fileHandler: FileHandler
     private val remainingPieces: MutableList<Int>
     val messageCreator = MessageCreator(metainfo)
@@ -57,27 +58,27 @@ class TorrentLoader(val metainfo: Metainfo, val alreadyDownloaded: Array<Boolean
     }
 
     private fun startConnection() {
-        val peers = lastResponse.peers.toMutableList()
+        peers.clear()
+        peers += lastResponse.peers
 
         val peerHandlers = mutableListOf<PeerHandler>()
 
-        runBlocking {
-            while (true) {
-                var socket: Socket? = null
-                var peer: PeerInfo? = null
-                while (socket == null) {
-                    peer = peers.removeFirst()
-                    socket = connectToPeer(peer)
-                }
-                if(peer == null){
-                    error("no peers left :(")
-                }
-                val handler = PeerHandler(this@TorrentLoader, peer,this.coroutineContext,socket)
+        while (peers.isNotEmpty()){
+            try {
+                println("starting connection to new peer")
+                val handler = PeerHandler(this@TorrentLoader)
                 peerHandlers.add(handler)
                 handler.start()
-                exitProcess(0)
+
+            }catch (e: SocketException){
+                println("socket exception: ${e.message}")
             }
         }
+
+    }
+
+    fun getPeerInfo(): PeerInfo {
+        return peers.removeFirst()
     }
 
     fun getBitfieldMessage(): ByteArray {
@@ -88,16 +89,7 @@ class TorrentLoader(val metainfo: Metainfo, val alreadyDownloaded: Array<Boolean
         return alreadyDownloaded.any{it}
     }
 
-    private suspend fun connectToPeer(peer: PeerInfo): Socket? {
-        return try {
-            aSocket(selectorManager).tcp().connect(peer.ip, peer.port) {
-                socketTimeout = 2000
-            }
-        } catch (e: java.lang.Exception) {
-            println("Could not connect to peer ${peer.ip}:${peer.port} because: ${e.message}")
-            null
-        }
-    }
+
 
     fun getNewPiece(peer: PeerConnection): Int? {
         val peerHavingIndices =  peer.availablePieces.getHavingIndices().toSet()
@@ -106,6 +98,11 @@ class TorrentLoader(val metainfo: Metainfo, val alreadyDownloaded: Array<Boolean
         val chosenIndex = intersection.random()
         remainingPieces.remove(chosenIndex)
         return chosenIndex
+    }
+
+    fun interestedInPeer(peer: PeerConnection): Boolean {
+        val peerHavingIndices =  peer.availablePieces.getHavingIndices().toSet()
+       return (remainingPieces intersect peerHavingIndices).isNotEmpty()
     }
 
     fun writePieceToFile(pieceIndex: Int, bytes: ByteArray){
