@@ -7,6 +7,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.ClosedReceiveChannelException
 import kotlinx.coroutines.launch
+import torrent.MessageCreator.Companion.BLOCK_SIZE
 import java.nio.ByteBuffer
 import java.util.HexFormat
 
@@ -60,12 +61,20 @@ fun UByte.toBitString(): String {
 fun UByteArray.asBitList(): List<Boolean> {
    return this.joinToString(separator = "") { it.toBitString() }.map { it == '1' }
 }
+val buffer = ByteArray(BLOCK_SIZE*2)
 
-suspend inline fun ByteReadChannel.readNBytes(bytes: Int): ByteArray {
+suspend fun ByteReadChannel.readNBytes(bytes: Int): ByteArray {
     val result = ByteArray(bytes)
-    val closed = this.readAvailable(result, 0, bytes)
-    if(closed== -1){
-        throw ClosedReceiveChannelException("read channel closed")
+    var bytesRead = 0
+    var remainingBytes = bytes
+    while (bytesRead != bytes){
+        val read = this.readAvailable(buffer, 0, remainingBytes)
+        if(read== -1){
+            throw ClosedReceiveChannelException("read channel closed")
+        }
+        System.arraycopy(buffer, 0, result, bytesRead, read)
+        remainingBytes-=read
+        bytesRead+= read
     }
     return result
 }
@@ -103,11 +112,5 @@ suspend fun connectToPeer(peer: PeerInfo): Socket? {
     } catch (e: java.lang.Exception) {
         println("Could not connect to peer ${peer.ip}:${peer.port} because: ${e.message}")
         null
-    }
-}
-
-fun ByteWriteChannel.launchWriteAvailable(scope: CoroutineScope, bytes: ByteArray) {
-    scope.launch(Dispatchers.IO) {
-        this@launchWriteAvailable.writeAvailable(bytes)
     }
 }

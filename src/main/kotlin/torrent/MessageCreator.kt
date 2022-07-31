@@ -13,7 +13,9 @@ typealias Block = Pair<Int, ByteArray>
 class MessageCreator(private val metainfo: Metainfo) {
 
     companion object{
-        val BLOCK_SIZE = 2.0.pow(14.0).toInt()
+        //val BLOCK_SIZE = 2.0.pow(14.0).toInt()
+        val BLOCK_SIZE = 2048
+        //val BLOCK_SIZE = 4096
         val ONE_BYTES = (1).toByteArray()
         val BLOCK_SIZE_BYTES = BLOCK_SIZE.toByteArray()
         const val ID_5 = (5).toByte()
@@ -22,10 +24,10 @@ class MessageCreator(private val metainfo: Metainfo) {
         val ID_6_ARR = ByteArray(1){6}
         val ID_7_ARR = ByteArray(1){7}
         const val ID_6_MESSAGE_LENGTH = 17
-        val CHOKE_MESSAGE = byteArrayOf(0,0,0,0,0)
-        val UNCHOKE_MESSAGE = byteArrayOf(0,0,0,0,1)
-        val INTERESTED_MESSAGE = byteArrayOf(0,0,0,0,2)
-        val UNINTERESTED_MESSAGE = byteArrayOf(0,0,0,0,3)
+        val CHOKE_MESSAGE = byteArrayOf(0,0,0,1,0)
+        val UNCHOKE_MESSAGE = byteArrayOf(0,0,0,1,1)
+        val INTERESTED_MESSAGE = byteArrayOf(0,0,0,1,2)
+        val UNINTERESTED_MESSAGE = byteArrayOf(0,0,0,1,3)
 
 
     }
@@ -57,6 +59,7 @@ class MessageCreator(private val metainfo: Metainfo) {
         val messages = mutableListOf<Pair<Int, ByteArray>>()
         val pieceIndexBytes = pieceIndex.toByteArray()
         for(start in 0 until pieceLength- BLOCK_SIZE step BLOCK_SIZE) {
+
             val message = ByteArray(ID_6_MESSAGE_LENGTH)
             message.copyIntoSelf(ID_6_LENGTH_BYTES,0)
             message.copyIntoSelf(ID_6_ARR,4)
