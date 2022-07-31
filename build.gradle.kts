@@ -18,7 +18,7 @@ dependencies {
     val ktor_version = "2.0.3"
     implementation("io.ktor:ktor-network:$ktor_version")
     implementation("io.ktor:ktor-network-tls:$ktor_version")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.6.4")
+    implementation ("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.6.1-native-mt")
     testImplementation(kotlin("test"))
 }
 

@@ -8,12 +8,14 @@ import getHavingIndices
 import getRandomPeerId
 import io.ktor.network.selector.*
 import io.ktor.network.sockets.*
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.Channel
 import tracker.TrackerRequestData
 import tracker.TrackerService
 import java.net.SocketException
 import java.nio.file.Path
+import kotlin.concurrent.timer
+import kotlin.concurrent.timerTask
 import kotlin.properties.Delegates
 import kotlin.system.exitProcess
 
@@ -22,6 +24,7 @@ class TorrentLoader(val metainfo: Metainfo, val alreadyDownloaded: Array<Boolean
     companion object {
         val peerId = getRandomPeerId()
         const val HANDSHAKE_SIZE = 68
+        const val maxConnections = 10
     }
 
     private val trackerService = TrackerService(metainfo)
@@ -33,14 +36,16 @@ class TorrentLoader(val metainfo: Metainfo, val alreadyDownloaded: Array<Boolean
     private val fileHandler: FileHandler
     private val remainingPieces: MutableList<Int>
     val messageCreator = MessageCreator(metainfo)
+    val availablePeers = Channel<PeerInfo>(capacity = 100)
 
     init {
         remainingBytes = metainfo.torrentInfo.getLength()
         val path = folderPath.resolve(metainfo.torrentInfo.name)
         fileHandler = FileHandler(path, metainfo)
-        remainingPieces = alreadyDownloaded.mapIndexedNotNull { index, b -> if(!b)
-         index else null
-        } .toMutableList()
+        remainingPieces = alreadyDownloaded.mapIndexedNotNull { index, b ->
+            if (!b)
+                index else null
+        }.toMutableList()
     }
 
     private fun getInfoFromTracker() {
@@ -57,24 +62,34 @@ class TorrentLoader(val metainfo: Metainfo, val alreadyDownloaded: Array<Boolean
         startConnection()
     }
 
+    @OptIn(ExperimentalCoroutinesApi::class, DelicateCoroutinesApi::class)
     private fun startConnection() {
         peers.clear()
         peers += lastResponse.peers
 
+
         val peerHandlers = mutableListOf<PeerHandler>()
+        runBlocking {
+            peers.forEach { availablePeers.send(it) }
+            var openConnections = 0
 
-        while (peers.isNotEmpty()){
-            try {
-                println("starting connection to new peer")
-                val handler = PeerHandler(this@TorrentLoader)
-                peerHandlers.add(handler)
-                handler.start()
-
-            }catch (e: SocketException){
-                println("socket exception: ${e.message}")
+            while (true){
+                while (openConnections < maxConnections) {
+                    try {
+                        launch(newSingleThreadContext("handler")) {
+                            println("starting connection to new peer")
+                            val handler = PeerHandler(this@TorrentLoader, this)
+                            handler.start()
+                        }
+                        openConnections++
+                    } catch (e: Exception) {
+                        println("closing handler exception: ${e.message}")
+                        openConnections--
+                    }
+                }
+                delay(5000)
             }
         }
-
     }
 
     fun getPeerInfo(): PeerInfo {
@@ -86,26 +101,25 @@ class TorrentLoader(val metainfo: Metainfo, val alreadyDownloaded: Array<Boolean
     }
 
     fun somethingDownloaded(): Boolean {
-        return alreadyDownloaded.any{it}
+        return alreadyDownloaded.any { it }
     }
 
 
-
     fun getNewPiece(peer: PeerConnection): Int? {
-        val peerHavingIndices =  peer.availablePieces.getHavingIndices().toSet()
+        val peerHavingIndices = peer.availablePieces.getHavingIndices().toSet()
         val intersection = remainingPieces intersect peerHavingIndices
-        if(intersection.isEmpty()) return null
+        if (intersection.isEmpty()) return null
         val chosenIndex = intersection.random()
         remainingPieces.remove(chosenIndex)
         return chosenIndex
     }
 
     fun interestedInPeer(peer: PeerConnection): Boolean {
-        val peerHavingIndices =  peer.availablePieces.getHavingIndices().toSet()
-       return (remainingPieces intersect peerHavingIndices).isNotEmpty()
+        val peerHavingIndices = peer.availablePieces.getHavingIndices().toSet()
+        return (remainingPieces intersect peerHavingIndices).isNotEmpty()
     }
 
-    fun writePieceToFile(pieceIndex: Int, bytes: ByteArray){
+    fun writePieceToFile(pieceIndex: Int, bytes: ByteArray) {
         fileHandler.writeBytes(pieceIndex, bytes)
         alreadyDownloaded[pieceIndex] = true
     }

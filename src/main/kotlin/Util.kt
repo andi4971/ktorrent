@@ -61,23 +61,6 @@ fun UByte.toBitString(): String {
 fun UByteArray.asBitList(): List<Boolean> {
    return this.joinToString(separator = "") { it.toBitString() }.map { it == '1' }
 }
-val buffer = ByteArray(BLOCK_SIZE*2)
-
-suspend fun ByteReadChannel.readNBytes(bytes: Int): ByteArray {
-    val result = ByteArray(bytes)
-    var bytesRead = 0
-    var remainingBytes = bytes
-    while (bytesRead != bytes){
-        val read = this.readAvailable(buffer, 0, remainingBytes)
-        if(read== -1){
-            throw ClosedReceiveChannelException("read channel closed")
-        }
-        System.arraycopy(buffer, 0, result, bytesRead, read)
-        remainingBytes-=read
-        bytesRead+= read
-    }
-    return result
-}
 
 fun getSHA1ForUrl(sha1: ByteArray): String {
     return String(sha1, Charsets.ISO_8859_1)

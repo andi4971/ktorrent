@@ -34,6 +34,7 @@ fun main(args: Array<String>) {
             RandomAccessFile(file, "rw").setLength(metainfo.torrentInfo.length!!)
         }
         alreadyDownloaded = validateFile(filePath, metainfo.torrentInfo.pieces, metainfo.torrentInfo.pieceLength.toInt())
+        println("valid pieces: ${alreadyDownloaded.count{it}}")
     }else{
         //folder stuff
         return
