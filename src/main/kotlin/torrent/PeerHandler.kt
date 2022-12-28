@@ -5,14 +5,16 @@ import bencode.entity.PeerInfo
 import connectToPeer
 import copyIntoSelf
 import getSHA1ForText
+import io.ktor.network.selector.*
 import io.ktor.network.sockets.*
 import io.ktor.util.*
 import io.ktor.utils.io.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ClosedReceiveChannelException
+import org.slf4j.LoggerFactory
 import toIntFour
-import torrent.ByteParser.Companion.parseHandshake
+import torrent.HandshakeParser.Companion.parseHandshake
 import torrent.MessageCreator.Companion.BLOCK_SIZE
 import torrent.MessageCreator.Companion.CHOKE_MESSAGE
 import torrent.MessageCreator.Companion.INTERESTED_MESSAGE
@@ -20,8 +22,6 @@ import torrent.MessageCreator.Companion.UNCHOKE_MESSAGE
 import torrent.MessageCreator.Companion.UNINTERESTED_MESSAGE
 import kotlin.properties.Delegates
 
-//TODO: implement choking algo
-//TODO: mutlifile handling
 
 @OptIn(ExperimentalUnsignedTypes::class)
 class PeerHandler(
@@ -32,8 +32,9 @@ class PeerHandler(
     companion object {
         const val SIMULTANEOUS_REQUESTS = 10
     }
+    private val LOG = LoggerFactory.getLogger(this::class.java)
 
-    private lateinit var peerConnection: PeerConnection
+    lateinit var peerConnection: PeerConnection
     private lateinit var socket: Socket
     lateinit var sendChannel: ByteWriteChannel
     lateinit var readChannel: ByteReadChannel
@@ -43,41 +44,48 @@ class PeerHandler(
     private var gotPiece = false
     var currentPieceDownloadedBytes = 0
     private lateinit var blockRequestsForCurrentPiece: MutableList<Block>
-    val currentlyWaitingBlockRequests = mutableListOf<Block>()
+    private val currentlyWaitingBlockRequests = mutableListOf<Block>()
     private var keepAliveCount = 0
+    private lateinit var selectorManager: SelectorManager
 
-    private val bytesToSend = Channel<ByteArray>()
+    val bytesToSend = Channel<ByteArray>()
 
-    @OptIn(DelicateCoroutinesApi::class)
+    @OptIn(DelicateCoroutinesApi::class, ExperimentalCoroutinesApi::class)
     suspend fun start() {
-        scope.launch {
+        scope.launch(scope.coroutineContext) {
+            selectorManager = SelectorManager(scope.coroutineContext)
             var tempSocket: Socket? = null
             var peerInfo: PeerInfo = torrentLoader.availablePeers.receive()
             while (tempSocket == null) {
-                tempSocket = connectToPeer(peerInfo)
-                if (tempSocket == null) peerInfo = torrentLoader.availablePeers.receive()
+                tempSocket = connectToPeer(peerInfo, LOG, selectorManager)
+                if (tempSocket == null) {
+                    if(torrentLoader.availablePeers.isEmpty){
+                        LOG.warn("No more available peers")
+                    }
+                    peerInfo = torrentLoader.availablePeers.receive()
+                }
             }
             socket = tempSocket
             readChannel = socket.openReadChannel()
             sendChannel = socket.openWriteChannel(autoFlush = true)
             peerConnection = PeerConnection(peerInfo, torrentLoader.metainfo.torrentInfo.pieces.size)
-            launch(Dispatchers.IO) {
-                startConnection()
+            async(scope.coroutineContext) {
+                startConnection(scope)
             }
-            launch(newSingleThreadContext("yeet")) {
-                receiveBytesToSend()
+            async (scope.coroutineContext) {
+                receiveBytesToSend(scope)
             }
         }
     }
 
-    private suspend fun receiveBytesToSend() {
-        while (true) {
+    private suspend fun receiveBytesToSend(scope: CoroutineScope) {
+        while (scope.isActive) {
             val bytes = bytesToSend.receive()
             sendChannel.writeAvailable(bytes)
         }
     }
 
-    private suspend fun startConnection() {
+    private suspend fun startConnection(scope: CoroutineScope) {
         val handshake = torrentLoader.messageCreator.getHandshakeMessage()
 
         bytesToSend.send(handshake)
@@ -87,28 +95,27 @@ class PeerHandler(
         readChannel.readAvailable(handshakePeer, 0, 68)
 
         if (!parseHandshake(handshakePeer, torrentLoader.metainfo)) {
-            this.scope.cancel(kotlinx.coroutines.CancellationException("whoopsie"))
+            this.scope.cancel()
         }
 
         if (torrentLoader.somethingDownloaded()) {
             val ownBitfield = torrentLoader.getBitfieldMessage()
             bytesToSend.send(ownBitfield)
         }
-        while (true) {
+        while (scope.isActive) {
             try {
-                handleMessages()
+                handleMessages(scope)
             } catch (e: java.lang.Exception) {
-                println(e)
+                LOG.error("Error while handling messages: ${e.message}")
                 if (gotPiece) torrentLoader.putPieceBack(currentPieceIndex)
-                this.scope.cancel(kotlinx.coroutines.CancellationException("whoopsie"))
-                break
+                this.scope.cancel()
             }
         }
 
     }
 
-    private suspend fun handleMessages() {
-        while (true) {
+    private suspend fun handleMessages(scope: CoroutineScope) {
+        while (scope.isActive) {
             readChannel.awaitContent()
             val lenBytes = readChannel.readNBytes(4)
             val len = lenBytes.toIntFour()
@@ -116,7 +123,7 @@ class PeerHandler(
             /*println("received new message")
             println("message length: $len")*/
             if (len == 0) {
-                println("keep alive received ${++keepAliveCount}")
+                LOG.debug("keep alive received ${++keepAliveCount}")
                 continue
             }
             val messageId = readChannel.readNBytes(1).first().toInt()
@@ -124,7 +131,7 @@ class PeerHandler(
             println("received code: $messageId")
 */
             if(len > BLOCK_SIZE*2 || len < 0){
-                println("length is fucked up :(")
+                LOG.error("length is broken $len")
                 if(gotPiece)
                 this.torrentLoader.putPieceBack(currentPieceIndex)
                 check(false)
@@ -142,10 +149,11 @@ class PeerHandler(
                 7 -> handleBlock(len)
                 8 -> readChannel.readNBytes(12)//ignore cancel request
                 9 -> readChannel.readNBytes(2)//ignore port message
-                else -> println("error got illegal message id")
+                else -> LOG.error("error got illegal message id")
             }
         }
-
+        LOG.info("closing socket")
+        socket.close()
     }
 
     private suspend inline fun sendBlockRequests(count: Int) {
@@ -165,7 +173,7 @@ class PeerHandler(
 
 
     private suspend fun handlePeerInterest(interested: Boolean) {
-        println("handle peer interest")
+        LOG.debug("handle peer interest")
         peerConnection.peerInterested = interested
         if (interested) {
             if (peerConnection.amChoking) {
@@ -181,7 +189,7 @@ class PeerHandler(
     }
 
     private suspend fun handleChoking(choking: Boolean) {
-        println("changing choking to: $choking")
+        LOG.debug("changing choking to: $choking")
         peerConnection.peerChoking = choking
         if (choking) {
             blockRequestsForCurrentPiece += currentlyWaitingBlockRequests
@@ -195,7 +203,7 @@ class PeerHandler(
     private suspend fun handlePeerBlockRequest() {
         val pieceIndex = readChannel.readNBytes(4).toIntFour()
         if (!torrentLoader.alreadyDownloaded[pieceIndex]) {
-            println("peer requested piece $pieceIndex that is not downloaded yet")
+            LOG.debug("peer requested piece $pieceIndex that is not downloaded yet")
             return
         }
         val blockOffset = readChannel.readNBytes(4).toIntFour()
@@ -224,7 +232,7 @@ class PeerHandler(
     private suspend fun writeToPiece(blockOffset: Int, blockData: ByteArray) {
         val hadWaitingRequest = currentlyWaitingBlockRequests.removeIf { it.first == blockOffset }
         if (!hadWaitingRequest) {
-            println("had no waiting request for block so did not write")
+            LOG.debug("had no waiting request for block so did not write")
             return
         }
         currentPieceBytes.copyIntoSelf(blockData, blockOffset)
@@ -234,6 +242,7 @@ class PeerHandler(
     }
 
     private suspend fun checkWritePiece() {
+        LOG.info("remaining ${currentlyWaitingBlockRequests.size} and ${blockRequestsForCurrentPiece.size}")
         if(currentlyWaitingBlockRequests.isEmpty() && blockRequestsForCurrentPiece.isEmpty()){
             if (!validatePiece()) {
                 torrentLoader.putPieceBack(currentPieceIndex)
@@ -246,20 +255,20 @@ class PeerHandler(
     }
 
     private fun writePiece() {
-        println("writing piece $currentPieceIndex to file")
+        LOG.debug("writing piece $currentPieceIndex to file")
         torrentLoader.writePieceToFile(currentPieceIndex, currentPieceBytes)
     }
 
     private suspend fun getNewPiece() {
         val idx = torrentLoader.getNewPiece(peerConnection)
-        println("get new piece")
+        LOG.debug("get new piece")
         if (idx == null) {
             currentPieceIndex
             gotPiece = false
-            println("no piece available")
+            LOG.debug("no piece available")
             return
         }
-        println("got piece")
+        LOG.debug("got piece")
         gotPiece = true
         currentPieceIndex = idx
         currentPieceDownloadedBytes = 0
@@ -270,7 +279,9 @@ class PeerHandler(
     private fun validatePiece(): Boolean {
 
         return if(torrentLoader.metainfo.torrentInfo.pieces.lastIndex == currentPieceIndex) {
-            val remainingBytes = torrentLoader.metainfo.torrentInfo.getLength().mod(torrentLoader.metainfo.torrentInfo.pieceLength.toInt())
+            var remainingBytes = torrentLoader.metainfo.torrentInfo.getLength().mod(torrentLoader.metainfo.torrentInfo.pieceLength.toInt())
+            if(remainingBytes == 0) remainingBytes = torrentLoader.metainfo.torrentInfo.pieceLength.toInt()
+
             val bytesToCheck = currentPieceBytes.sliceArray(0 until remainingBytes)
             getSHA1ForText(sha1(bytesToCheck)) == torrentLoader.metainfo.torrentInfo.pieces[currentPieceIndex]
         }else {
@@ -279,7 +290,7 @@ class PeerHandler(
     }
 
     private suspend fun handleHave() {
-        println("peer has new piece")
+        LOG.debug("peer has new piece")
         val pieceIndex = readChannel.readNBytes(4).toIntFour()
         peerConnection.availablePieces[pieceIndex] = true
         if (!gotPiece) {
@@ -301,24 +312,24 @@ class PeerHandler(
     }
 
     private suspend fun checkAmInterested() {
-        println("checking if interested")
+        LOG.debug("checking if interested")
         if (torrentLoader.interestedInPeer(peerConnection) || gotPiece) {
-            println("am interested in peer")
+            LOG.debug("am interested in peer")
 
             if (!peerConnection.amInterested) {
-                println("changing to interested")
+                LOG.debug("changing to interested")
 
 
                 bytesToSend.send(INTERESTED_MESSAGE)
                 //bytesToSend.send(UNCHOKE_MESSAGE)
                 //peerConnection.amChoking = false
                 peerConnection.amInterested = true
-                println("sent interest message")
+                LOG.debug("sent interest message")
             } else {
-                println("already interested in peer")
+                LOG.debug("already interested in peer")
             }
             if (peerConnection.peerChoking) {
-                println("cant request piece because choking")
+                LOG.debug("cant request piece because choking")
             } else {
                 if (!gotPiece) {
                     getNewPiece()
@@ -326,13 +337,13 @@ class PeerHandler(
             }
 
         } else {
-            println("am uninterested in peer")
+            LOG.debug("am uninterested in peer")
             if (peerConnection.amInterested && !gotPiece) {
-                println("changing to uninterested as i got no piece")
+                LOG.debug("changing to uninterested as i got no piece")
                 bytesToSend.send(UNINTERESTED_MESSAGE)
                 peerConnection.amInterested = false
             } else {
-                println("remaining interested as there is still a piece")
+                LOG.debug("remaining interested as there is still a piece")
             }
 
         }

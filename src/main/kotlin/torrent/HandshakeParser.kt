@@ -2,14 +2,16 @@ package torrent
 
 import bencode.entity.Metainfo
 import bittorrentProtocol
+import org.slf4j.LoggerFactory
 import toBitString
 import torrent.TorrentLoader.Companion.HANDSHAKE_SIZE
 import java.util.HexFormat
 
-class ByteParser {
+class HandshakeParser {
 
     companion object {
         private val hex = HexFormat.of()
+        private val LOG = LoggerFactory.getLogger(this::class.java)
 
         fun parseHandshake(handshake: ByteArray, infoHash: String): Handshake {
             check(handshake.size == HANDSHAKE_SIZE) {"handshake not 68 bytes ${handshake.size}"}
@@ -30,10 +32,10 @@ class ByteParser {
             return try {
                 val handshakeResponse =
                     parseHandshake(result.sliceArray(0 until HANDSHAKE_SIZE), metainfo.infoHashForText)
-                println("Successful handshake with peerid: ${handshakeResponse.peerId}  reserved bits: ${handshakeResponse.reservedBits}")
+                LOG.debug("Successful handshake with peerid: ${handshakeResponse.peerId}  reserved bits: ${handshakeResponse.reservedBits}")
                 true
             } catch (e: java.lang.IllegalStateException) {
-                println("failure while validating handshake: ${e.message}")
+                LOG.error("failure while validating handshake: ${e.message}")
                 false
             }
         }

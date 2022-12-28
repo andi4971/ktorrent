@@ -3,7 +3,7 @@ package bencode
 import java.nio.file.Files
 import java.nio.file.Path
 
-class Bencoder {
+class BencodeParser {
 
     private lateinit var bytes: ByteArray
     private lateinit var text: String
@@ -26,7 +26,6 @@ class Bencoder {
     }
 
     private fun parseElement(): ParsedData? {
-
         return when (getCurr()) {
             'i' -> parseInt()
             'l' -> parseList()

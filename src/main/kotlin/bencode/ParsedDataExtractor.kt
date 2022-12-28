@@ -16,8 +16,8 @@ class ParsedDataExtractor {
     fun extractMetainfo(parsedData: ParsedData): Metainfo {
         val dict = parsedData as DictionaryParsedData
         val announceUrl = dict.getValue<StringParsedData>("announce")
-        val announceList = dict.getValue<ListParsedData>("announce-list")
-            .getValues<ListParsedData>()
+        val announceList = dict.getValueOrNull<ListParsedData>("announce-list")
+            ?.getValues<ListParsedData>().orEmpty()
             .flatMap { it.getValues<StringParsedData>() }
             .map { it.text }
         val comment = dict.getValueOrNull<StringParsedData>("comment")
@@ -75,8 +75,8 @@ class ParsedDataExtractor {
         val interval = dict.getValue<LongParsedData>("interval").value
         val minInterval = dict.getValueOrNull<LongParsedData>("min interval")?.value
         val trackerId = dict.getValueOrNull<StringParsedData>("tracker id")?.text
-        val complete = dict.getValue<LongParsedData>("complete").value
-        val incomplete = dict.getValue<LongParsedData>("incomplete").value
+        val complete = dict.getValueOrNull<LongParsedData>("complete")?.value ?: 0
+        val incomplete = dict.getValueOrNull<LongParsedData>("incomplete")?.value ?: 0
         val peers = if (dict.isValueOfType("peers", ListParsedData::class)) {
             parsePeers(dict.getValue<ListParsedData>("peers"))
         } else {

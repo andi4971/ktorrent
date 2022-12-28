@@ -44,7 +44,10 @@ class MessageCreator(private val metainfo: Metainfo) {
         val bitfieldBytes = havePieces
             .map { if(it) '1' else '0' }
             .chunked(8)
-            .map { it.joinToString("").padEnd(8,'0').toUByte(2).toByte() }
+            .map { it.joinToString("")
+                .padEnd(8,'0')
+                .toUByte(2)
+                .toByte() }
         return (bitfieldLength.toList() + listOf(ID_5) +bitfieldBytes).toByteArray()
     }
 
@@ -53,11 +56,12 @@ class MessageCreator(private val metainfo: Metainfo) {
         val messages = mutableListOf<Pair<Int, ByteArray>>()
         val pieceIndexBytes = pieceIndex.toByteArray()
 
-        val isLastPiece = metainfo.torrentInfo.pieces.lastIndex == pieceIndex
-
         var overshootBytes = 0
         val until = if(metainfo.torrentInfo.pieces.lastIndex == pieceIndex) {
-            val remainingBytes = metainfo.torrentInfo.getLength().mod(pieceLength).toDouble()
+            var remainingBytes = metainfo.torrentInfo.getLength().mod(pieceLength).toDouble()
+            if(remainingBytes == 0.0) {
+                remainingBytes = pieceLength.toDouble()
+            }
             val untilFloor = floor(remainingBytes/BLOCK_SIZE).toInt() * BLOCK_SIZE
             overshootBytes = remainingBytes.toInt() - untilFloor
             untilFloor
@@ -95,6 +99,12 @@ class MessageCreator(private val metainfo: Metainfo) {
         pieceMessage.copyIntoSelf(offsetBytes, 9)
         pieceMessage.copyIntoSelf(block, 13)
         return pieceMessage
+    }
+
+    fun getHavePieceMessage(pieceIndex: Int): ByteArray{
+        val length = 5.toByteArray()
+        val id = byteArrayOf(4)
+        return length+ id + pieceIndex.toByteArray()
     }
 
 }

@@ -20,6 +20,8 @@ dependencies {
     implementation("io.ktor:ktor-network-tls:$ktor_version")
     implementation ("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.6.1-native-mt")
     testImplementation(kotlin("test"))
+    implementation(kotlin("stdlib-jdk8"))
+    implementation("org.slf4j:slf4j-simple:2.0.6")
 }
 
 tasks.test {
@@ -34,3 +36,11 @@ application {
     mainClass.set("MainKt")
 }
 
+val compileKotlin: KotlinCompile by tasks
+compileKotlin.kotlinOptions {
+    jvmTarget = "1.8"
+}
+val compileTestKotlin: KotlinCompile by tasks
+compileTestKotlin.kotlinOptions {
+    jvmTarget = "1.8"
+}

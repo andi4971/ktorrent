@@ -7,6 +7,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.ClosedReceiveChannelException
 import kotlinx.coroutines.launch
+import org.slf4j.Logger
+import org.slf4j.LoggerFactory
 import torrent.MessageCreator.Companion.BLOCK_SIZE
 import java.nio.ByteBuffer
 import java.util.HexFormat
@@ -87,13 +89,12 @@ fun ByteArray.copyIntoSelf(other: ByteArray, destPos: Int) {
     System.arraycopy(other, 0, this, destPos, other.size)
 }
 
-private val selectorManager = SelectorManager(Dispatchers.IO)
 
-suspend fun connectToPeer(peer: PeerInfo): Socket? {
+suspend fun connectToPeer(peer: PeerInfo, logger: Logger, selectorManager: SelectorManager): Socket? {
     return try {
         aSocket(selectorManager).tcp().connect(peer.ip, peer.port)
     } catch (e: java.lang.Exception) {
-        println("Could not connect to peer ${peer.ip}:${peer.port} because: ${e.message}")
+        logger.error("Could not connect to peer ${peer.ip}:${peer.port} because: ${e.message}")
         null
     }
 }

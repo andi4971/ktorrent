@@ -1,12 +1,12 @@
 package tracker
 
-import bencode.Bencoder
+import bencode.BencodeParser
 import bencode.ParsedDataExtractor
 import bencode.entity.Metainfo
 import bencode.entity.TrackerResponse
 import feign.Feign
 import feign.okhttp.OkHttpClient
-import getRandomPeerId
+import org.slf4j.LoggerFactory
 import torrent.TorrentLoader.Companion.peerId
 import tracker.TrackerRequestFields.DOWNLOADED
 import tracker.TrackerRequestFields.INFO_HASH
@@ -17,9 +17,10 @@ import tracker.TrackerRequestFields.UPLOADED
 import java.net.URLEncoder
 
 class TrackerService(private val metainfo: Metainfo) {
+    private val LOG = LoggerFactory.getLogger(this::class.java)
 
     private var port = 6881
-    private val bencoder = Bencoder()
+    private val bencodeParser = BencodeParser()
     private val parsedDataExtractor = ParsedDataExtractor()
     private val client: TrackerApi = Feign.builder()
         .client(OkHttpClient())
@@ -33,9 +34,9 @@ class TrackerService(private val metainfo: Metainfo) {
         queryMap[DOWNLOADED]=requestData.downloaded
         queryMap[UPLOADED]=requestData.uploaded
         queryMap[LEFT]=requestData.remaining
-        println("Encoded info_hash: ${queryMap[INFO_HASH]}")
+        LOG.debug("Encoded info_hash: ${queryMap[INFO_HASH]}")
         val response = client.getTrackerInfo(queryMap)
-        val parsedResponse = bencoder.parse(response).first()
+        val parsedResponse = bencodeParser.parse(response).first()
         return parsedDataExtractor.extractTrackerResponse(parsedResponse)
     }
 
